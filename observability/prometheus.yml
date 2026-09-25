@@ -1,0 +1,11 @@
+global:
+  scrape_interval: 5s
+  evaluation_interval: 5s
+
+scrape_configs:
+  - job_name: krakend
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["krakend:9091", "krakend-aggregator:9091"]
+        labels:
+          application: all-fabs-settings-poc

@@ -1,0 +1,16 @@
+{
+  "request_timeout": "59s",
+  "backend_timeout": "30s",
+  "items": [
+    { "id": "FAB_A", "host": "http://mock-api:8080", "path": "/fabs/FAB_A/settings" },
+    { "id": "FAB_B", "host": "http://mock-api:8080", "path": "/fabs/FAB_B/settings" },
+    { "id": "FAB_C", "host": "http://mock-api:8080", "path": "/fabs/FAB_C/settings" },
+    { "id": "FAB_D", "host": "http://mock-api:8080", "path": "/fabs/FAB_D/settings" },
+    { "id": "FAB_E", "host": "http://mock-api:8080", "path": "/fabs/FAB_E/settings" },
+    { "id": "FAB_F", "host": "http://mock-api:8080", "path": "/fabs/FAB_F/settings" },
+    { "id": "FAB_G", "host": "http://mock-api:8080", "path": "/fabs/FAB_G/settings" },
+    { "id": "FAB_H", "host": "http://mock-api:8080", "path": "/fabs/FAB_H/settings" },
+    { "id": "FAB_I", "host": "http://mock-api:8080", "path": "/fabs/FAB_I/settings" },
+    { "id": "FAB_J", "host": "http://mock-api:8080", "path": "/fabs/FAB_J/settings" }
+  ]
+}

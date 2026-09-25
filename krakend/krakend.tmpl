@@ -1,0 +1,103 @@
+{
+  "$schema": "https://www.krakend.io/schema/v2.13/krakend.json",
+  "version": 3,
+  "name": "all-fabs-settings-aggregator",
+  "port": 8080,
+  "timeout": "{{ .fabs.request_timeout }}",
+  "response_header_timeout": "{{ .fabs.backend_timeout }}",
+  "cache_ttl": "0s",
+  "extra_config": {
+    "telemetry/logging": {
+      "level": "INFO",
+      "prefix": "[KRAKEND]",
+      "syslog": false,
+      "stdout": true
+    },
+    "telemetry/opentelemetry": {
+      "service_name": "krakend-fab-aggregator",
+      "service_version": "1.0.0",
+      "deploy_env": "poc",
+      "trace_sample_rate": 1,
+      "exporters": {
+        "prometheus": [
+          {
+            "name": "krakend",
+            "port": 9091,
+            "listen_ip": "0.0.0.0",
+            "process_metrics": true,
+            "go_metrics": true
+          }
+        ],
+        "otlp": [
+          {
+            "name": "local_collector",
+            "host": "otel-collector",
+            "port": 4318,
+            "use_http": true,
+            "disable_metrics": true
+          }
+        ]
+      },
+      "layers": {
+        "global": {
+          "disable_metrics": false,
+          "disable_traces": false
+        },
+        "proxy": {
+          "disable_metrics": false,
+          "disable_traces": false
+        },
+        "backend": {
+          "metrics": {
+            "disable_stage": false,
+            "round_trip": true,
+            "read_payload": true
+          },
+          "traces": {
+            "disable_stage": false,
+            "round_trip": true,
+            "read_payload": true
+          }
+        }
+      }
+    }
+  },
+  "endpoints": [
+    {
+      "endpoint": "/internal/allfabs-settings",
+      "method": "GET",
+      "output_encoding": "json",
+      "timeout": "{{ .fabs.request_timeout }}",
+      "extra_config": {
+        "proxy": {
+          "static": {
+            "strategy": "always",
+            "data": {
+              "_expected": {
+                {{ range $index, $fab := .fabs.items }}
+                {{ if $index }},{{ end }}"{{ $fab.id }}": true
+                {{ end }}
+              }
+            }
+          }
+        }
+      },
+      "backend": [
+        {{ range $index, $fab := .fabs.items }}
+        {{ if $index }},{{ end }}
+        {
+          "group": "{{ $fab.id }}",
+          "host": ["{{ $fab.host }}"],
+          "url_pattern": "{{ $fab.path }}",
+          "encoding": "json",
+          "extra_config": {
+            "backend/http": {
+              "return_error_details": "{{ $fab.id }}"
+            }
+          }
+        }
+        {{ end }}
+      ]
+    }
+  ]
+}

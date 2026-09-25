@@ -1,0 +1,94 @@
+services:
+  mock-api:
+    build:
+      context: ./mock-api
+    ports:
+      - "8081:8080"
+    restart: unless-stopped
+
+  krakend:
+    image: krakend:2.13.11
+    depends_on:
+      - krakend-aggregator
+      - otel-collector
+    ports:
+      - "8080:8080"
+      - "9091:9091"
+    volumes:
+      - ./krakend:/etc/krakend
+    command: ["run", "-c", "/etc/krakend/public.json"]
+    restart: unless-stopped
+
+  krakend-aggregator:
+    image: krakend:2.13.11
+    depends_on:
+      - mock-api
+      - otel-collector
+    volumes:
+      - ./krakend:/etc/krakend
+    environment:
+      FC_ENABLE: "1"
+      FC_SETTINGS: /etc/krakend/config/settings
+      FC_OUT: /tmp/krakend.generated.json
+    command: ["run", "-c", "/etc/krakend/krakend.tmpl"]
+    restart: unless-stopped
+
+  prometheus:
+    image: prom/prometheus:v3.5.0
+    depends_on:
+      - krakend
+      - krakend-aggregator
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --web.enable-lifecycle
+    restart: unless-stopped
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.132.0
+    depends_on:
+      - tempo
+    ports:
+      - "4317:4317"
+      - "4318:4318"
+      - "13133:13133"
+    volumes:
+      - ./observability/otel-collector.yml:/etc/otelcol-contrib/config.yaml:ro
+    restart: unless-stopped
+
+  tempo:
+    image: grafana/tempo:2.8.2
+    ports:
+      - "3200:3200"
+    volumes:
+      - ./observability/tempo.yml:/etc/tempo.yml:ro
+      - tempo-data:/var/tempo
+    command: ["-config.file=/etc/tempo.yml"]
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:12.1.1
+    depends_on:
+      - prometheus
+      - tempo
+    ports:
+      - "3000:3000"
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Admin
+      GF_AUTH_DISABLE_LOGIN_FORM: "true"
+    volumes:
+      - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    restart: unless-stopped
+
+volumes:
+  prometheus-data:
+  tempo-data:
+  grafana-data:
