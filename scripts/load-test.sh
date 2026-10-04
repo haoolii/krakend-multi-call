@@ -25,8 +25,16 @@ case "$MODE" in
     CONFIG_URL="$MOCK_URL/admin/fabs/all?mode=success&page_items=3&payload_kb=1024"
     EXTRA_CONFIG_URL="$MOCK_URL/admin/fabs/FAB_B?mode=timeout&delay_ms=20000"
     ;;
+  all-timeout)
+    CONFIG_URL="$MOCK_URL/admin/fabs/all?mode=timeout&delay_ms=20000"
+    EXTRA_CONFIG_URL=""
+    ;;
+  all-error)
+    CONFIG_URL="$MOCK_URL/admin/fabs/all?mode=error"
+    EXTRA_CONFIG_URL=""
+    ;;
   *)
-    printf 'Usage: bash scripts/load-test.sh [large|hang|large-timeout] [duration_seconds] [rps]\n' >&2
+    printf 'Usage: bash scripts/load-test.sh [large|hang|large-timeout|all-timeout|all-error] [duration_seconds] [rps]\n' >&2
     exit 1
     ;;
 esac
@@ -59,7 +67,7 @@ for ((second = 1; second <= DURATION_SECONDS; second++)); do
     ) &
   done
 
-  if [[ ( "$MODE" == "hang" || "$MODE" == "large-timeout" ) && "$second" -eq 1 ]]; then
+  if [[ ( "$MODE" == "hang" || "$MODE" == "large-timeout" || "$MODE" == "all-timeout" ) && "$second" -eq 1 ]]; then
     sleep 1
     printf '\nMock state after the first second at %d RPS:\n' "$RPS"
     curl -fsS "$MOCK_URL/admin/state"

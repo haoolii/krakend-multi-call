@@ -120,6 +120,28 @@ Fab 回傳 HTTP error 時，保留成功 Fab，並以 `error_FAB_X` object 回�
 
 `error_FAB_X` 的 HTTP error detail 由 KrakenD `backend/http.return_error_details` 原生產生。真正 transport timeout 在 Lua backend post 前終止 pipeline，因此不會有 `error_FAB_X` entry；請使用 `X-Krakend-Completed: false` 判斷 aggregation 不完整。
 
+當所有 Fab 都 transport timeout 時，`proxy.static.strategy: "always"` 仍會注入 `callFabs`。因此目前 contract 是 HTTP 200、`X-Krakend-Completed: false`，body 只有 `callFabs`，不是 KrakenD 預設的 HTTP 500：
+
+```powershell
+curl.exe -X POST http://localhost:8081/admin/reset
+curl.exe -X PUT "http://localhost:8081/admin/fabs/all?mode=timeout&delay_ms=20000"
+curl.exe -D - http://localhost:8080/api/allfabs
+```
+
+```json
+{
+  "callFabs": ["FAB_A", "FAB_B", "FAB_C", "FAB_D", "FAB_E", "FAB_F", "FAB_G", "FAB_H", "FAB_I", "FAB_J", "FAB_WRONG"]
+}
+```
+
+相反地，當所有 Fab 都回 HTTP 500 時，仍是 HTTP 200，但每個 Fab 都有 `error_FAB_X` detail：
+
+```powershell
+curl.exe -X POST http://localhost:8081/admin/reset
+curl.exe -X PUT "http://localhost:8081/admin/fabs/all?mode=error"
+curl.exe -D - http://localhost:8080/api/allfabs
+```
+
 Mock Fab behavior can be changed for demos:
 
 ```powershell
@@ -151,7 +173,7 @@ curl.exe -X PUT "http://localhost:8081/admin/fabs/FAB_A?mode=hang"
 curl.exe -X PUT "http://localhost:8081/admin/fabs/all?mode=hang"
 ```
 
-KrakenD 的 backend response-header timeout 為 3 秒，所以 `hang` request 約 3 秒後會被 KrakenD cancel，不會永久堆積。持續併發 request 才能觀察連線堆積。
+KrakenD 的 backend response-header timeout 為 3 秒，所以 `hang` request 約 3 秒後會被 KrakenD cancel，不會永久堆積。持續併發 request 才能觀察連線堆積。三種 timeout 的完整範圍與設定方式請參閱 [KRAKEND_LUA_FLOW_ZH.md 的 Timeout 設定](KRAKEND_LUA_FLOW_ZH.md#timeout-設定)。
 
 測試 20 秒 backend 與 KrakenD timeout 的關係：
 
@@ -195,9 +217,11 @@ bash scripts/load-test.sh large 10
 bash scripts/load-test.sh hang 30
 bash scripts/load-test.sh hang 30 2
 bash scripts/load-test.sh large-timeout 10 1
+bash scripts/load-test.sh all-timeout 10 1
+bash scripts/load-test.sh all-error 10 1
 ```
 
-第二個參數是持續秒數，第三個參數是 RPS，預設為 10。例如 `hang 30 2` 會在 30 秒內送出 60 個 Gateway requests。每個 request 會輸出 `total` 實際耗時。`large-timeout` 讓 FAB_B 延遲 20 秒，KrakenD 應在約 3 秒取消它，同時其他 Fab 回傳大型 payload。腳本結束或按 Ctrl+C 時會自動重置 Mock，避免測試狀態保留。
+第二個參數是持續秒數，第三個參數是 RPS，預設為 10。例如 `hang 30 2` 會在 30 秒內送出 60 個 Gateway requests。每個 request 會輸出 `total` 實際耗時。`large-timeout` 讓 FAB_B 延遲 20 秒，KrakenD 應在約 3 秒取消它，同時其他 Fab 回傳大型 payload。`all-timeout` 讓所有 Fab timeout，應回 HTTP 200、`X-Krakend-Completed: false` 與只有 `callFabs` 的body；`all-error` 讓所有 Fab 回 HTTP 500，應回 HTTP 200 與 `error_FAB_X` details。腳本結束或按 Ctrl+C 時會自動重置 Mock，避免測試狀態保留。
 
 KrakenD container 預設限制為 1 CPU，超出處理能力時會增加 latency 而不搶佔其他容器的 CPU。需要調整時，在啟動前設定 `KRAKEND_CPUS`，例如 PowerShell：
 

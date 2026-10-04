@@ -241,6 +241,70 @@ curl.exe -o NUL -w "total=%{time_total}s`n" http://localhost:8080/api/allfabs
 curl.exe http://localhost:8081/admin/calls
 ```
 
+## Timeout 設定
+
+Timeout 設定位於 `krakend/config/settings/fabs.json`，由 `krakend/krakend.tmpl` 展開。這個 endpoint 同時平行呼叫多個 Fab，三個 timeout 的範圍不同：
+
+| 屬性 | 目前值 | 設定層級 | 保護的階段 |
+| --- | --- | --- | --- |
+| `endpoint_timeout` | `10s` | KrakenD root 與 `/api/allfabs` endpoint | 整條 endpoint pipeline |
+| `response_header_timeout` | `3s` | KrakenD root HTTP transport | 每次 upstream request 等待 response headers |
+| `dialer_timeout` | 未設定，預設 `0s` | KrakenD root HTTP transport | 建立 TCP connection |
+
+### `endpoint_timeout`
+
+`endpoint_timeout` 展開為 KrakenD 的 `timeout`。root 層是所有 endpoint 的預設；`/api/allfabs` 層的同名設定會覆蓋 root 預設。目前兩處都使用 `10s`，因此整條 `/api/allfabs` 最多使用 10 秒。
+
+它是所有平行 Fab 共用的一個 deadline，包含建立 backend calls、讀取 response body、JSON decode、backend Lua、aggregation 與回傳結果；不是每個 Fab 各有 10 秒。
+
+```text
+0s                         Client 呼叫 /api/allfabs
+0s - 10s                   平行呼叫 Fab、讀 body、decode、Lua、aggregation
+10s                        取消尚未完成的工作，回傳 partial response 或 500
+```
+
+一般 KrakenD endpoint 在完全沒有可用 backend 結果時可能回 HTTP 500；但本 POC 的 `proxy.static.strategy: "always"` 永遠注入 `callFabs`，所以所有 Fab transport timeout 時仍回 HTTP 200 與 `X-Krakend-Completed: false`，body 只有 `callFabs`。
+
+### `response_header_timeout`
+
+`response_header_timeout` 限制 KrakenD 對每個 upstream Fab request 等待 HTTP response headers 的時間。request 完整送出後，Fab 必須在 3 秒內開始回應 HTTP status 與 headers，否則 KrakenD 取消該 backend call。
+
+```text
+KrakenD 送出 GET /fabs/FAB_A/settings
+  -> 等待 HTTP status 與 response headers，最多 3 秒
+  -> 收到 headers 後，此 timeout 結束
+```
+
+它不包含 response body download、JSON decode 或 Lua。因此 Fab 若在 1 秒內回 headers、但 body 傳送卡住，該 Fab 仍會使用 `endpoint_timeout` 剩餘的時間，最久到整體 10 秒 deadline。
+
+### `dialer_timeout`
+
+`dialer_timeout` 限制 KrakenD 建立 upstream TCP connection 的時間，例如 backend IP 無法連線、網路路由異常或 SYN 沒有回應時。它在送出 HTTP request 前生效：
+
+```text
+DNS / 取得目標位址
+  -> TCP connect，受 dialer_timeout 限制
+  -> 送出 HTTP request
+  -> 等待 response headers，受 response_header_timeout 限制
+  -> 讀 body、decode、Lua，受 endpoint_timeout 剩餘時間限制
+```
+
+目前 POC 沒有設定 `dialer_timeout`，KrakenD 預設為 `0s`，表示不額外設定 dial timeout，仍可能受作業系統網路 timeout 與 10 秒 endpoint deadline 限制。若要明確限制連線建立時間，可在 `fabs.json` 加入：
+
+```json
+"dialer_timeout": "1s"
+```
+
+並在 template root 層加入：
+
+```json
+"dialer_timeout": "{{ .fabs.dialer_timeout }}"
+```
+
+### 為何 Grafana 可出現超過 3 秒
+
+`krakend_backend_duration` 是完整 backend stage，包含 body read、JSON decode 與 backend Lua，不是只等待 headers 的時間。請用 `http_client_duration` 對照 first-byte/header wait，用 `http_client_request_timedout_count` 觀察 transport timeout 次數。
+
 ## 大型 Payload 與 Hang 壓測
 
 Mock Fab 可以刻意產生大型、但最終會被 Lua 刪除的 `page`。每個正常 Fab 有兩筆主資料，以下設定會讓每筆主資料具有 3 筆 page item、每筆 page item 約 1 MiB：
@@ -287,9 +351,11 @@ Git Bash 或 Linux/macOS Bash 可直接執行：
 bash scripts/load-test.sh large 10
 bash scripts/load-test.sh hang 30 10
 bash scripts/load-test.sh large-timeout 10 1
+bash scripts/load-test.sh all-timeout 10 1
+bash scripts/load-test.sh all-error 10 1
 ```
 
-第二個參數是持續秒數，第三個參數是 RPS，預設為 10。`large-timeout` 讓全部 Fab 回傳大 payload，再讓 FAB_B 延遲 20 秒；KrakenD 應在 response-header timeout 3 秒後取消 FAB_B。每個 request 輸出 `total` 實際耗時。`hang` 與 `large-timeout` 會在第一秒後顯示 Mock active connection state，最後顯示 peak 與 canceled counters。
+第二個參數是持續秒數，第三個參數是 RPS，預設為 10。`large-timeout` 讓全部 Fab 回傳大 payload，再讓 FAB_B 延遲 20 秒；KrakenD 應在 response-header timeout 3 秒後取消 FAB_B。`all-timeout` 讓全部 Fab timeout，應回 HTTP 200、`X-Krakend-Completed: false` 且 body 只含 `callFabs`。`all-error` 讓全部 Fab 回 HTTP 500，應回 HTTP 200 並含每個 `error_FAB_X`。每個 request 輸出 `total` 實際耗時。`hang`、`large-timeout` 與 `all-timeout` 會在第一秒後顯示 Mock active connection state，最後顯示 peak 與 canceled counters。
 
 20 個 Gateway requests 且全部 11 個 Fab hang 時，Mock peak active connections 理論最大接近 220。用以下 API 或 Grafana 觀察：
 
