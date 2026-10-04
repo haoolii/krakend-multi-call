@@ -21,5 +21,3 @@ datasources:
         datasourceUid: prometheus
       nodeGraph:
         enabled: true
-      serviceMap:
-        datasourceUid: prometheus

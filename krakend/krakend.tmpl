@@ -1,10 +1,10 @@
 {
   "$schema": "https://www.krakend.io/schema/v2.13/krakend.json",
   "version": 3,
-  "name": "all-fabs-settings-aggregator",
+  "name": "parallel-fab-lua-transform-poc",
   "port": 8080,
-  "timeout": "{{ .fabs.request_timeout }}",
-  "response_header_timeout": "{{ .fabs.backend_timeout }}",
+  "timeout": "{{ .fabs.endpoint_timeout }}",
+  "response_header_timeout": "{{ .fabs.response_header_timeout }}",
   "cache_ttl": "0s",
   "extra_config": {
     "telemetry/logging": {
@@ -14,7 +14,7 @@
       "stdout": true
     },
     "telemetry/opentelemetry": {
-      "service_name": "krakend-fab-aggregator",
+      "service_name": "krakend-permission-fanout",
       "service_version": "1.0.0",
       "deploy_env": "poc",
       "trace_sample_rate": 1,
@@ -39,60 +39,49 @@
         ]
       },
       "layers": {
-        "global": {
-          "disable_metrics": false,
-          "disable_traces": false
-        },
-        "proxy": {
-          "disable_metrics": false,
-          "disable_traces": false
-        },
+        "global": { "disable_metrics": false, "disable_traces": false },
+        "proxy": { "disable_metrics": false, "disable_traces": false },
         "backend": {
-          "metrics": {
-            "disable_stage": false,
-            "round_trip": true,
-            "read_payload": true
-          },
-          "traces": {
-            "disable_stage": false,
-            "round_trip": true,
-            "read_payload": true
-          }
+          "metrics": { "disable_stage": false, "round_trip": true, "read_payload": true },
+          "traces": { "disable_stage": false, "round_trip": true, "read_payload": true }
         }
       }
     }
   },
   "endpoints": [
     {
-      "endpoint": "/internal/allfabs-settings",
+      "endpoint": "/api/allfabs",
       "method": "GET",
+      "input_headers": ["X-Request-Id"],
       "output_encoding": "json",
-      "timeout": "{{ .fabs.request_timeout }}",
+      "timeout": "{{ .fabs.endpoint_timeout }}",
       "extra_config": {
         "proxy": {
           "static": {
             "strategy": "always",
             "data": {
-              "_expected": {
-                {{ range $index, $fab := .fabs.items }}
-                {{ if $index }},{{ end }}"{{ $fab.id }}": true
-                {{ end }}
-              }
+              "callFabs": [{{ range $index, $fab := .fabs.fabs }}{{ if $index }}, {{ end }}"{{ $fab }}"{{ end }}]
             }
           }
         }
       },
       "backend": [
-        {{ range $index, $fab := .fabs.items }}
+        {{ range $index, $fab := .fabs.fabs }}
         {{ if $index }},{{ end }}
         {
-          "group": "{{ $fab.id }}",
-          "host": ["{{ $fab.host }}"],
-          "url_pattern": "{{ $fab.path }}",
+          "group": "{{ $fab }}",
+          "host": ["{{ $.fabs.endpoint }}"],
+          "url_pattern": "/fabs/{{ $fab }}/settings",
           "encoding": "json",
+          "is_collection": true,
           "extra_config": {
             "backend/http": {
-              "return_error_details": "{{ $fab.id }}"
+                "return_error_details": "{{ $fab }}"
+            },
+            "modifier/lua-backend": {
+              "sources": ["/etc/krakend/response.lua"],
+              "allow_open_libs": true,
+              "post": "remove_page_field(response.load(), '{{ $fab }}')"
             }
           }
         }

@@ -1,248 +1,220 @@
-# KrakenD All Fabs Settings POC
+# KrakenD Parallel Fab Lua Transform POC
 
-這個 POC 提供單一 API，透過 KrakenD 平行取得 10 個廠區的 settings，並支援 partial response、Prometheus metrics、OpenTelemetry traces 與 Grafana dashboard。
+此 POC 使用單一 KrakenD instance 平行呼叫 `krakend/config/settings/fabs.json` 中列出的 Fab API。目前清單為 FAB_A 到 FAB_J 與 FAB_WRONG，共 11 個。每個 Fab 回傳 JSON array，KrakenD backend Lua 會刪除每筆資料的 `page` 欄位，再依 Fab 名稱聚合 response。
 
-## 架構
+Fab registry 只設定共同 endpoint 與 Fab ID 清單；template 自動產生每個 backend 的 `http://mock-api:8080/fabs/{FAB_ID}/settings` 呼叫。
+
+完整中文說明請見 [`KRAKEND_LUA_FLOW_ZH.md`](KRAKEND_LUA_FLOW_ZH.md)。
+
+## Start
+
+```powershell
+docker compose up -d --build --remove-orphans
+curl.exe http://localhost:8080/api/allfabs
+```
+
+服務網址：
+
+- KrakenD API: http://localhost:8080/api/allfabs
+- Mock Admin API: http://localhost:8081
+- Prometheus: http://localhost:9090
+- Grafana: http://localhost:3000
+- Tempo: http://localhost:3200
+
+## OTLP/HTTP
+
+KrakenD 2.6.8 支援 OTLP/HTTP。此 POC 的 KrakenD 對同一 Docker network 內的 OTel Collector 使用明文 HTTP，因此 KrakenD 不需要掛載 TLS certificate：
+
+```json
+"otlp": [
+  {
+    "name": "local_collector",
+    "host": "otel-collector",
+    "port": 4318,
+    "use_http": true,
+    "disable_metrics": true
+  }
+]
+```
+
+`use_http: true` 指的是使用 OTLP/HTTP transport；是否使用 TLS 取決於 exporter endpoint。此 POC 的 bare Docker service name `otel-collector` 搭配 port `4318` 是明文 HTTP。Collector 在 `observability/otel-collector.yml` 開啟對應 receiver：
+
+```yaml
+receivers:
+  otlp:
+    protocols:
+      http:
+        endpoint: 0.0.0.0:4318
+```
+
+Trace flow：
 
 ```text
-Client
-  -> Public KrakenD :8080
-      -> Aggregator KrakenD
-          -> 10 Fab APIs in parallel
-
-Public/Aggregator KrakenD
-  -> Prometheus :9090 -> Grafana :3000
-  -> OTel Collector -> Tempo :3200 -> Grafana :3000
+KrakenD -- OTLP/HTTP :4318 --> OTel Collector -- OTLP/gRPC --> Tempo
 ```
 
-使用兩層 KrakenD 是為了同時滿足：
+這只適用於受信任的內網、同 Pod 或同 Docker network。若公司中央 telemetry endpoint 強制 HTTPS 或 mTLS，請保留 KrakenD 到本機/內網 Collector 的 HTTP，改由 Collector 負責 HTTPS、CA 與 client certificate；不要為了移除 KrakenD certificate 而將中央 endpoint 改成未加密 HTTP。
 
-- 對外整組 request timeout 為 60 秒。
-- 每個廠區 API 等待 response header 最多 30 秒。
-- 某個廠區 timeout 時，仍可執行 Lua 並維持固定 response schema。
-- 內層 KrakenD 仍負責真正的 10 路平行 fan-out。
+### Verify OTLP Traces
 
-內層 timeout 設為 59 秒，預留 1 秒讓外層在 60 秒 deadline 前完成 Lua response formatting。
-
-## 元件
-
-| 元件 | 用途 | 對外網址 |
-| --- | --- | --- |
-| Public KrakenD | 對外 API、Lua response formatting | http://localhost:8080 |
-| Aggregator KrakenD | 平行呼叫 10 個廠區 API | 僅 Docker network |
-| Mock API | 模擬廠區 API 與故障情境 | http://localhost:8081 |
-| Prometheus | 收集兩個 KrakenD instance 的 metrics | http://localhost:9090 |
-| OTel Collector | 接收 KrakenD OTLP traces | http://localhost:4318 |
-| Tempo | 儲存與查詢 traces | http://localhost:3200 |
-| Grafana | Metrics dashboard 與 trace 查詢 | http://localhost:3000 |
-
-Grafana 已啟用 anonymous admin，POC 不需要登入。
-
-## 快速啟動
-
-需求：Docker Desktop 與 Docker Compose。
+1. 確認 `krakend/krakend.tmpl` 使用 `use_http: true`、port `4318`，且 Collector HTTP receiver 已啟用。
+2. 重新建立 KrakenD 以載入設定：
 
 ```powershell
-docker compose up -d --build
-docker compose ps
+docker compose up -d --no-deps --force-recreate krakend
 ```
 
-呼叫聚合 API：
+3. 產生帶有可追蹤 request ID 的流量：
 
 ```powershell
-curl.exe http://localhost:8080/api/allfabs-settings
+curl.exe -sS -o NUL -H "X-Request-Id: otlp-http-check" http://localhost:8080/api/allfabs
 ```
 
-停止服務：
+4. 等待數秒讓 exporter 與 Collector batch flush，確認兩個服務沒有 export error：
 
 ```powershell
-docker compose down
+docker compose logs --since 2m krakend otel-collector
 ```
 
-若要一併刪除 Prometheus、Tempo、Grafana 資料：
+常見失敗字串包括 `connection refused`、`404`、`x509`、`tls` 與 `failed to upload traces`。
 
-```powershell
-docker compose down -v
-```
+5. 開啟 Grafana `http://localhost:3000`，在 **Explore** 選擇 **Tempo**，查詢 service name `krakend-permission-fanout`，時間範圍設為最近 15 分鐘。查到剛產生的 trace 才代表 KrakenD -> Collector -> Tempo 的端到端流程成功。
 
-## API Response
+此設定的 `disable_metrics: true` 代表 OTLP exporter 只送 traces；KrakenD metrics 仍由 Prometheus 從 `http://localhost:9091/metrics` pull，這是預期行為。
+
+## Response
 
 ```json
 {
-  "settings": {
-    "FAB_A": {
-      "fab": "FAB_A",
-      "timezone": "Asia/Taipei",
-      "features": {
-        "autoDispatch": true,
-        "maintenance": false
-      }
-    }
-  },
-  "errors": {
-    "FAB_J": {
-      "http_status_code": 504,
-      "code": "FAB_SETTINGS_TIMEOUT",
-      "message": "backend did not respond within 30 seconds"
-    }
-  },
-  "status": "partial_success",
-  "summary": {
-    "success": 9,
-    "failed": 1,
-    "total": 10
+  "callFabs": ["FAB_A", "FAB_B", "FAB_C", "FAB_D", "FAB_E", "FAB_F", "FAB_G", "FAB_H", "FAB_I", "FAB_J", "FAB_WRONG"],
+  "FAB_A": {
+    "collection": [
+      { "id": 1, "name": "example-1", "fab": "A" },
+      { "id": 2, "name": "example-2", "fab": "A" }
+    ]
   }
 }
 ```
 
-`status` 有三種值：
+`callFabs` 由 KrakenD proxy static data 直接設定為 `krakend/config/settings/fabs.json` 展開後的 Fab ID array，不解析成功或失敗 response，也不需要額外 metadata backend API。它永遠列出 KrakenD 此 endpoint 設定要呼叫的完整 Fab 清單，即使某個 Fab transport timeout：
 
-- `success`：10 個廠區全部成功。
-- `partial_success`：至少一個成功、至少一個失敗。
-- `failed`：10 個廠區全部失敗。
+- `FAB_X` 存在：成功。
+- `error_FAB_X` 存在：Fab 回傳 HTTP error。
+- `FAB_X` 與 `error_FAB_X` 都不存在，且 `X-Krakend-Completed: false`：transport timeout、decode error 或連線失敗。
 
-KrakenD aggregation 使用 graceful degradation，因此 partial 或全部 backend 失敗時，HTTP response 仍為 `200`。呼叫端應以 body 的 `status` 與 `summary` 判斷結果；`X-Krakend-Completed` header 也會反映是否完整成功。
+真正 transport timeout 時，KrakenD CE 不會執行 endpoint Lua post，但 `callFabs` 改由 proxy static data 注入；請使用 `X-Krakend-Completed: false` 判斷 aggregation 不完整。
 
-## 廠區設定
+`FAB_WRONG` 是刻意加入的 item contract 錯誤 backend：root 仍回傳 JSON array，所以最終仍有 `FAB_WRONG.collection`；但 item 不含 `page`，`id` 是 string、`name` 是 array，還有未預期欄位。Lua 只會在 `page` 存在時刪除，因此 FAB_WRONG 的錯誤欄位會原樣傳給前端。
 
-設定檔位於 `krakend/config/settings/fabs.json`：
+Fab 回傳 HTTP error 時，保留成功 Fab，並以 `error_FAB_X` object 回傳該 backend error：
 
 ```json
 {
-  "request_timeout": "59s",
-  "backend_timeout": "30s",
-  "items": [
-    {
-      "id": "FAB_A",
-      "host": "http://mock-api:8080",
-      "path": "/fabs/FAB_A/settings"
-    }
-  ]
+  "FAB_A": { "collection": [] },
+  "error_FAB_B": {
+    "http_status_code": 500,
+    "http_body": "{\"code\":\"FAB_UNAVAILABLE\"}"
+  }
 }
 ```
 
-- `request_timeout`：內層 aggregation timeout，應小於對外 60 秒。
-- `backend_timeout`：每個廠區等待 response header 的上限。
-- `id`：response 中的廠區 key，必須唯一。
-- `host`：廠區 API base URL。
-- `path`：settings API path。
+`error_FAB_X` 的 HTTP error detail 由 KrakenD `backend/http.return_error_details` 原生產生。真正 transport timeout 在 Lua backend post 前終止 pipeline，因此不會有 `error_FAB_X` entry；請使用 `X-Krakend-Completed: false` 判斷 aggregation 不完整。
 
-修改後先驗證設定：
+Mock Fab behavior can be changed for demos:
 
 ```powershell
-docker compose run --rm --no-deps krakend-aggregator check -t -d -c /etc/krakend/krakend.tmpl
-```
-
-重新載入廠區設定：
-
-```powershell
-docker compose restart krakend-aggregator
-```
-
-`fabs.json` 不應存放 API key 或 token。正式環境應改用環境變數、Docker secrets 或外部 secret manager。
-
-## Mock 故障測試
-
-Mock 支援 `success`、`error`、`timeout` 三種模式。
-
-讓 `FAB_J` 回傳 HTTP 500：
-
-```powershell
-curl.exe -X PUT "http://localhost:8081/admin/fabs/FAB_J?mode=error"
-```
-
-讓 `FAB_J` 超過 30 秒沒有 response header：
-
-```powershell
-curl.exe -X PUT "http://localhost:8081/admin/fabs/FAB_J?mode=timeout"
-```
-
-恢復單一廠區：
-
-```powershell
-curl.exe -X PUT "http://localhost:8081/admin/fabs/FAB_J?mode=success"
-```
-
-重置全部廠區：
-
-```powershell
+curl.exe -X PUT "http://localhost:8081/admin/fabs/FAB_A?mode=success&delay_ms=1000"
+curl.exe -X PUT "http://localhost:8081/admin/fabs/FAB_B?mode=error"
 curl.exe -X POST http://localhost:8081/admin/reset
 ```
 
-查看目前 mock 狀態：
+## Large Payload and Hang Load Test
+
+每個正常 Fab response 有兩筆主資料。Mock reset 後，每筆主資料的 `page` 有 3 筆、每筆約 1 MiB 的 payload，合計約 3 MiB；因此單一 Fab upstream response 約 6 MiB，十個正常 Fab 合計約 60 MiB 原始 JSON。KrakenD 接收及解析後，backend Lua 才會刪除 `page`，所以 `/api/allfabs` 最終 response 不含這些 payload。
+
+設定全部 Fab 使用大型 payload：
+
+```powershell
+curl.exe -X PUT "http://localhost:8081/admin/fabs/all?mode=success&page_items=3&payload_kb=1024"
+```
+
+設定單一 Fab：
+
+```powershell
+curl.exe -X PUT "http://localhost:8081/admin/fabs/FAB_A?mode=success&page_items=3&payload_kb=1024"
+```
+
+讓一個或全部 backend 維持連線、不回傳 response：
+
+```powershell
+curl.exe -X PUT "http://localhost:8081/admin/fabs/FAB_A?mode=hang"
+curl.exe -X PUT "http://localhost:8081/admin/fabs/all?mode=hang"
+```
+
+KrakenD 的 backend response-header timeout 為 3 秒，所以 `hang` request 約 3 秒後會被 KrakenD cancel，不會永久堆積。持續併發 request 才能觀察連線堆積。
+
+測試 20 秒 backend 與 KrakenD timeout 的關係：
+
+```powershell
+# KrakenD 約 3 秒取消，Mock FAB_B 收到 cancel 後立即退出。
+curl.exe -X POST "http://localhost:8081/admin/reset"
+curl.exe -X PUT "http://localhost:8081/admin/fabs/FAB_B?mode=timeout&delay_ms=20000"
+curl.exe -D - -o NUL -w "total=%{time_total}s`n" "http://localhost:8080/api/allfabs"
+
+# Mock FAB_B 刻意忽略 cancel；Gateway 約 3 秒回應，但 FAB_B active 維持約 20 秒。
+curl.exe -X POST "http://localhost:8081/admin/reset"
+curl.exe -X PUT "http://localhost:8081/admin/fabs/FAB_B?mode=ignore_cancel&delay_ms=20000"
+curl.exe -D - -o NUL -w "total=%{time_total}s`n" "http://localhost:8080/api/allfabs"
+
+# Mock 先送 headers 再延遲 body；3 秒 header timeout 不適用，會消耗剩餘的 10 秒 endpoint timeout budget。
+curl.exe -X POST "http://localhost:8081/admin/reset"
+curl.exe -X PUT "http://localhost:8081/admin/fabs/FAB_B?mode=slow_body&delay_ms=20000&page_items=3&payload_kb=1024"
+curl.exe -D - -o NUL -w "total=%{time_total}s`n" "http://localhost:8080/api/allfabs"
+```
+
+檢查個別 Fab backend 是否仍在執行：
 
 ```powershell
 curl.exe http://localhost:8081/admin/state
 ```
 
-## Smoke Test
+查看 `activeByFab.FAB_B`。`timeout` 時 gateway 回應後應為 `0`；`ignore_cancel` 時會維持 `1` 到第 20 秒。Grafana 的 `Mock Active Requests By Fab`、`KrakenD Heap Detail` 與 `KrakenD Garbage Collection Rate` 可用於觀察同一輪測試。
 
-測試會依序驗證全部成功、單一 HTTP 500、30 秒 timeout、全部失敗，最後自動重置 mock：
-
-```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\smoke-test.ps1
-```
-
-timeout case 會真的等待約 30 秒，因此完整測試需要約 30 至 40 秒。
-
-## Observability
-
-### Metrics
-
-KrakenD 使用 OpenTelemetry Prometheus exporter 暴露 metrics，由 Prometheus pull：
-
-```text
-KrakenD /metrics -> Prometheus -> Grafana
-```
-
-- Prometheus targets：http://localhost:9090/targets
-- Grafana dashboard：http://localhost:3000/d/krakend-all-fabs
-
-Dashboard 已預先建立，包含 service up、request rate、p95 latency 與 memory。
-
-### Traces
-
-Trace pipeline：
-
-```text
-KrakenD -> OTLP/HTTP -> OTel Collector -> Tempo -> Grafana
-```
-
-在 Grafana 的 `Explore` 選擇 `Tempo`，以 service name 查詢：
-
-- `krakend-all-fabs`
-- `krakend-fab-aggregator`
-
-Trace 使用 batch export，API 呼叫後可能需要等待約 15 至 30 秒才會出現在 Tempo。
-
-## 專案結構
-
-```text
-docker-compose.yml
-krakend/
-  public.json                 # Public KrakenD 與 60 秒整體 timeout
-  krakend.tmpl                # Aggregator flexible configuration
-  response.lua               # 固定 response schema 與 summary
-  config/settings/fabs.json  # 廠區 URL 與 timeout 設定
-mock-api/
-  Dockerfile
-  main.go
-observability/
-  prometheus.yml
-  otel-collector.yml
-  tempo.yml
-  grafana/
-scripts/
-  smoke-test.ps1
-```
-
-## 常用診斷
+PowerShell 7 可用以下指令建立 20 個平行 Gateway requests：
 
 ```powershell
-docker compose ps
-docker compose logs -f krakend krakend-aggregator
-docker compose logs -f otel-collector tempo
-docker compose logs -f prometheus grafana
+1..20 | ForEach-Object -Parallel {
+  curl.exe -sS -o NUL http://localhost:8080/api/allfabs
+} -ThrottleLimit 20
 ```
 
-KrakenD 的 `response_header_timeout` 只限制等待 response header。若下游先送出 header、之後長時間卡在 response body，最終會由 59/60 秒 aggregation timeout 中止；若正式需求是整個 backend request 包含 body 都必須嚴格限制為 30 秒，需要 HTTP client plugin 或獨立 timeout proxy。
+Git Bash 或 Linux/macOS Bash 可直接使用壓測腳本：
+
+```bash
+bash scripts/load-test.sh large 10
+bash scripts/load-test.sh hang 30
+bash scripts/load-test.sh hang 30 2
+bash scripts/load-test.sh large-timeout 10 1
+```
+
+第二個參數是持續秒數，第三個參數是 RPS，預設為 10。例如 `hang 30 2` 會在 30 秒內送出 60 個 Gateway requests。每個 request 會輸出 `total` 實際耗時。`large-timeout` 讓 FAB_B 延遲 20 秒，KrakenD 應在約 3 秒取消它，同時其他 Fab 回傳大型 payload。腳本結束或按 Ctrl+C 時會自動重置 Mock，避免測試狀態保留。
+
+KrakenD container 預設限制為 1 CPU，超出處理能力時會增加 latency 而不搶佔其他容器的 CPU。需要調整時，在啟動前設定 `KRAKEND_CPUS`，例如 PowerShell：
+
+```powershell
+$env:KRAKEND_CPUS = "2.0"
+docker compose up -d krakend
+```
+
+觀察：
+
+- Grafana: http://localhost:3000，選擇 `KrakenD Parallel Fab Load`
+- 即時 container 資源: `docker stats kareknd-mo-krakend-1`
+- Mock active/peak/canceled 狀態: `curl.exe http://localhost:8081/admin/state`
+- Mock Prometheus metrics: `curl.exe http://localhost:8081/metrics`
+
+完成後恢復小型成功 response：
+
+```powershell
+curl.exe -X POST http://localhost:8081/admin/reset
+```

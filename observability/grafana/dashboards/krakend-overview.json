@@ -1,49 +1,125 @@
 {
   "annotations": { "list": [] },
   "editable": true,
-  "fiscalYearStartMonth": 0,
-  "graphTooltip": 0,
-  "links": [],
   "panels": [
     {
       "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "fieldConfig": { "defaults": { "color": { "mode": "thresholds" }, "mappings": [], "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "green", "value": 1 }] } }, "overrides": [] },
+      "fieldConfig": { "defaults": { "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "green", "value": 1 }] } }, "overrides": [] },
       "gridPos": { "h": 8, "w": 6, "x": 0, "y": 0 },
       "id": 1,
-      "options": { "colorMode": "value", "graphMode": "area", "justifyMode": "auto", "orientation": "auto", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "showPercentChange": false, "textMode": "auto", "wideLayout": true },
-      "pluginVersion": "12.1.1",
+      "options": { "colorMode": "value", "graphMode": "area", "reduceOptions": { "calcs": ["lastNotNull"], "values": false }, "textMode": "auto" },
       "targets": [{ "expr": "up{job=\"krakend\"}", "refId": "A" }],
       "title": "KrakenD Up",
       "type": "stat"
     },
     {
       "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "custom": { "axisBorderShow": false, "axisCenteredZero": false, "axisColorMode": "text", "axisLabel": "", "axisPlacement": "auto", "barAlignment": 0, "barWidthFactor": 0.6, "drawStyle": "line", "fillOpacity": 10, "gradientMode": "none", "hideFrom": { "legend": false, "tooltip": false, "viz": false }, "insertNulls": false, "lineInterpolation": "linear", "lineWidth": 1, "pointSize": 5, "scaleDistribution": { "type": "linear" }, "showPoints": "never", "spanNulls": false, "stacking": { "group": "A", "mode": "none" }, "thresholdsStyle": { "mode": "off" } }, "mappings": [], "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }] }, "unit": "reqps" }, "overrides": [] },
+      "fieldConfig": { "defaults": { "unit": "reqps" }, "overrides": [] },
       "gridPos": { "h": 8, "w": 18, "x": 6, "y": 0 },
       "id": 2,
-      "options": { "legend": { "calcs": [], "displayMode": "list", "placement": "bottom", "showLegend": true }, "tooltip": { "hideZeros": false, "mode": "single", "sort": "none" } },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true } },
       "targets": [{ "expr": "sum(rate(http_server_duration_count[1m]))", "legendFormat": "requests", "refId": "A" }],
       "title": "Request Rate",
       "type": "timeseries"
     },
     {
       "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "custom": { "axisBorderShow": false, "axisCenteredZero": false, "axisColorMode": "text", "axisLabel": "", "axisPlacement": "auto", "barAlignment": 0, "barWidthFactor": 0.6, "drawStyle": "line", "fillOpacity": 10, "gradientMode": "none", "hideFrom": { "legend": false, "tooltip": false, "viz": false }, "insertNulls": false, "lineInterpolation": "linear", "lineWidth": 1, "pointSize": 5, "scaleDistribution": { "type": "linear" }, "showPoints": "never", "spanNulls": false, "stacking": { "group": "A", "mode": "none" }, "thresholdsStyle": { "mode": "off" } }, "mappings": [], "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }] }, "unit": "s" }, "overrides": [] },
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
       "gridPos": { "h": 9, "w": 12, "x": 0, "y": 8 },
       "id": 3,
-      "options": { "legend": { "calcs": [], "displayMode": "list", "placement": "bottom", "showLegend": true }, "tooltip": { "hideZeros": false, "mode": "single", "sort": "none" } },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true } },
       "targets": [{ "expr": "histogram_quantile(0.95, sum by (le) (rate(http_server_duration_bucket[5m])))", "legendFormat": "p95", "refId": "A" }],
       "title": "Gateway p95 Latency",
       "type": "timeseries"
     },
     {
       "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "custom": { "axisBorderShow": false, "axisCenteredZero": false, "axisColorMode": "text", "axisLabel": "", "axisPlacement": "auto", "barAlignment": 0, "barWidthFactor": 0.6, "drawStyle": "line", "fillOpacity": 10, "gradientMode": "none", "hideFrom": { "legend": false, "tooltip": false, "viz": false }, "insertNulls": false, "lineInterpolation": "linear", "lineWidth": 1, "pointSize": 5, "scaleDistribution": { "type": "linear" }, "showPoints": "never", "spanNulls": false, "stacking": { "group": "A", "mode": "none" }, "thresholdsStyle": { "mode": "off" } }, "mappings": [], "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }] }, "unit": "bytes" }, "overrides": [] },
+      "fieldConfig": { "defaults": { "unit": "bytes" }, "overrides": [] },
       "gridPos": { "h": 9, "w": 12, "x": 12, "y": 8 },
       "id": 4,
-      "options": { "legend": { "calcs": [], "displayMode": "list", "placement": "bottom", "showLegend": true }, "tooltip": { "hideZeros": false, "mode": "single", "sort": "none" } },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true } },
       "targets": [{ "expr": "process_resident_memory_bytes{job=\"krakend\"}", "legendFormat": "resident memory", "refId": "A" }],
       "title": "KrakenD Memory",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "percentunit", "min": 0 }, "overrides": [] },
+      "gridPos": { "h": 9, "w": 8, "x": 0, "y": 17 },
+      "id": 5,
+      "options": { "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true } },
+      "targets": [{ "expr": "rate(process_cpu_seconds_total{job=\"krakend\"}[1m])", "legendFormat": "CPU cores", "refId": "A" }],
+      "title": "KrakenD CPU",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "bytes" }, "overrides": [] },
+      "gridPos": { "h": 9, "w": 8, "x": 8, "y": 17 },
+      "id": 6,
+      "options": { "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true } },
+      "targets": [{ "expr": "go_memstats_heap_alloc_bytes{job=\"krakend\"}", "legendFormat": "heap alloc", "refId": "A" }],
+      "title": "KrakenD Go Heap",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "min": 0 }, "overrides": [] },
+      "gridPos": { "h": 9, "w": 8, "x": 16, "y": 17 },
+      "id": 7,
+      "options": { "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true } },
+      "targets": [{ "expr": "go_goroutines{job=\"krakend\"}", "legendFormat": "goroutines", "refId": "A" }],
+      "title": "KrakenD Goroutines",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "min": 0 }, "overrides": [] },
+      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 26 },
+      "id": 8,
+      "options": { "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true } },
+      "targets": [{ "expr": "fab_mock_active_requests{job=\"mock-api\"}", "legendFormat": "active", "refId": "A" }, { "expr": "fab_mock_peak_active_requests{job=\"mock-api\"}", "legendFormat": "peak", "refId": "B" }],
+      "title": "Mock Active Backend Connections",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "ops", "min": 0 }, "overrides": [] },
+      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 26 },
+      "id": 9,
+      "options": { "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true } },
+      "targets": [{ "expr": "fab_mock_canceled_requests_total{job=\"mock-api\"}", "legendFormat": "canceled", "refId": "A" }, { "expr": "sum(fab_mock_calls_total{job=\"mock-api\"})", "legendFormat": "calls", "refId": "B" }],
+      "title": "Mock Canceled and Total Backend Calls",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "min": 0 }, "overrides": [] },
+      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 35 },
+      "id": 10,
+      "options": { "legend": { "displayMode": "table", "placement": "bottom", "showLegend": true } },
+      "targets": [{ "expr": "fab_mock_active_requests_by_fab{job=\"mock-api\"}", "legendFormat": "{{fab}}", "refId": "A" }],
+      "title": "Mock Active Requests By Fab",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "bytes", "min": 0 }, "overrides": [] },
+      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 35 },
+      "id": 11,
+      "options": { "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true } },
+      "targets": [{ "expr": "go_memstats_heap_alloc_bytes{job=\"krakend\"}", "legendFormat": "heap alloc", "refId": "A" }, { "expr": "go_memstats_heap_inuse_bytes{job=\"krakend\"}", "legendFormat": "heap in use", "refId": "B" }, { "expr": "go_memstats_heap_sys_bytes{job=\"krakend\"}", "legendFormat": "heap system", "refId": "C" }],
+      "title": "KrakenD Heap Detail",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "ops", "min": 0 }, "overrides": [] },
+      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 44 },
+      "id": 12,
+      "options": { "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true } },
+      "targets": [{ "expr": "rate(go_gc_duration_seconds_count{job=\"krakend\"}[1m])", "legendFormat": "GC cycles/s", "refId": "A" }],
+      "title": "KrakenD Garbage Collection Rate",
       "type": "timeseries"
     }
   ],
@@ -53,7 +129,7 @@
   "templating": { "list": [] },
   "time": { "from": "now-15m", "to": "now" },
   "timezone": "browser",
-  "title": "KrakenD All Fabs Overview",
-  "uid": "krakend-all-fabs",
-  "version": 1
+  "title": "KrakenD Parallel Fab Load",
+  "uid": "krakend-parallel-fab-load",
+  "version": 3
 }

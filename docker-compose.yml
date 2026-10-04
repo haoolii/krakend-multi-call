@@ -8,22 +8,13 @@ services:
 
   krakend:
     image: krakend:2.13.11
+    cpus: "${KRAKEND_CPUS:-1.0}"
     depends_on:
-      - krakend-aggregator
+      - mock-api
       - otel-collector
     ports:
       - "8080:8080"
       - "9091:9091"
-    volumes:
-      - ./krakend:/etc/krakend
-    command: ["run", "-c", "/etc/krakend/public.json"]
-    restart: unless-stopped
-
-  krakend-aggregator:
-    image: krakend:2.13.11
-    depends_on:
-      - mock-api
-      - otel-collector
     volumes:
       - ./krakend:/etc/krakend
     environment:
@@ -37,7 +28,6 @@ services:
     image: prom/prometheus:v3.5.0
     depends_on:
       - krakend
-      - krakend-aggregator
     ports:
       - "9090:9090"
     volumes:
@@ -46,7 +36,6 @@ services:
     command:
       - --config.file=/etc/prometheus/prometheus.yml
       - --storage.tsdb.path=/prometheus
-      - --web.enable-lifecycle
     restart: unless-stopped
 
   otel-collector:
