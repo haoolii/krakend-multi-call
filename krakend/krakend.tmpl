@@ -51,11 +51,16 @@
   "endpoints": [
     {
       "endpoint": "/api/allfabs",
-      "method": "GET",
-      "input_headers": ["X-Request-Id"],
+      "method": "POST",
+      "input_headers": ["X-Request-Id", "X-Internal-Skip-Fabs"],
       "output_encoding": "json",
       "timeout": "{{ .fabs.endpoint_timeout }}",
       "extra_config": {
+        "modifier/lua-endpoint": {
+          "sources": ["/etc/krakend/request.lua"],
+          "allow_open_libs": true,
+          "pre": "prepare_skip_fabs()"
+        },
         "proxy": {
           "static": {
             "strategy": "always",
@@ -70,6 +75,7 @@
         {{ if $index }},{{ end }}
         {
           "group": "{{ $fab }}",
+          "method": "GET",
           "host": ["{{ $.fabs.endpoint }}"],
           "url_pattern": "/fabs/{{ $fab }}/settings",
           "encoding": "json",
@@ -78,6 +84,11 @@
             "backend/http": {
                 "return_error_details": "{{ $fab }}"
             },
+            "validation/cel": [
+              {
+                "check_expr": "!('X-Internal-Skip-Fabs' in req_headers) || !(',' + req_headers['X-Internal-Skip-Fabs'][0] + ',').contains(',{{ $fab }},')"
+              }
+            ],
             "modifier/lua-backend": {
               "sources": ["/etc/krakend/response.lua"],
               "allow_open_libs": true,

@@ -10,7 +10,7 @@ Fab registry 只設定共同 endpoint 與 Fab ID 清單；template 自動產生�
 
 ```powershell
 docker compose up -d --build --remove-orphans
-curl.exe http://localhost:8080/api/allfabs
+curl.exe -X POST http://localhost:8080/api/allfabs
 ```
 
 服務網址：
@@ -20,6 +20,20 @@ curl.exe http://localhost:8080/api/allfabs
 - Prometheus: http://localhost:9090
 - Grafana: http://localhost:3000
 - Tempo: http://localhost:3200
+
+## POST Backend Skip
+
+`POST /api/allfabs`接受JSON payload。endpoint Lua只讀取一次`skipFabs`，轉換成內部header後清空body；每個backend的CEL再自行判斷是否略過。payload中的Fab ID不分大小寫。
+
+```powershell
+curl.exe -X POST http://localhost:8081/admin/reset
+curl.exe -X POST -H "Content-Type: application/json" -d '{"skipFabs":["fab_a","fab_c"]}' http://localhost:8080/api/allfabs
+curl.exe http://localhost:8081/admin/calls
+```
+
+預期`FAB_A`與`FAB_C`不會被呼叫，response標示為不完整；其他Fab的call count為`1`。送出`{}`時維持原本全部fan-out行為。
+
+請以Fab服務自身的metrics或`GET /admin/calls`驗證實際呼叫數。
 
 ## OTLP/HTTP
 
