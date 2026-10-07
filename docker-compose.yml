@@ -7,7 +7,9 @@ services:
     restart: unless-stopped
 
   krakend:
-    image: krakend:2.13.11
+    build:
+      context: .
+      dockerfile: krakend/Dockerfile
     cpus: "${KRAKEND_CPUS:-1.0}"
     depends_on:
       - mock-api

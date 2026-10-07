@@ -6,6 +6,10 @@
   "timeout": "{{ .fabs.endpoint_timeout }}",
   "response_header_timeout": "{{ .fabs.response_header_timeout }}",
   "cache_ttl": "0s",
+  "plugin": {
+    "folder": "/opt/krakend/plugins",
+    "pattern": ".so"
+  },
   "extra_config": {
     "telemetry/logging": {
       "level": "INFO",
@@ -83,6 +87,9 @@
           "extra_config": {
             "backend/http": {
                 "return_error_details": "{{ $fab }}"
+            },
+            "plugin/http-client": {
+              "name": "backend-logger"
             },
             "validation/cel": [
               {

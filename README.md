@@ -13,6 +13,39 @@ docker compose up -d --build --remove-orphans
 curl.exe -X POST http://localhost:8080/api/allfabs
 ```
 
+## Backend Request/Response Logs
+
+KrakenD uses the `backend-logger` HTTP client Go plugin to write each outgoing backend request URL and its response status and headers to stdout. Response bodies are forwarded unchanged but are not logged.
+
+The plugin is compiled during `docker compose up --build` using the same Linux environment as KrakenD `2.13.11`: Go `1.26.8`, Alpine `3.23`, musl, and `linux/amd64`.
+
+1. Build and start KrakenD:
+
+   ```powershell
+   docker compose up -d --build krakend
+   ```
+
+2. Send a request that fans out to all Fab backends:
+
+   ```powershell
+   curl.exe -X POST http://localhost:8080/api/allfabs
+   ```
+
+3. Inspect the backend HTTP logs:
+
+   ```powershell
+   docker compose logs --since 2m krakend
+   ```
+
+Each backend call emits a JSON event in the KrakenD log stream:
+
+```text
+{"event":"backend.request","method":"GET","url":"http://mock-api:8080/fabs/FAB_A/settings"}
+{"duration_ms":3,"event":"backend.response","headers":{"Content-Type":["application/json"]},"method":"GET","status":200,"url":"http://mock-api:8080/fabs/FAB_A/settings"}
+```
+
+Timeouts and transport failures emit `backend.response.error` with the request URL, elapsed time, and error. `plugin/http-client` replaces KrakenD's default HTTP client, so its built-in backend telemetry, cache, and client-credentials behavior do not apply to these backends.
+
 服務網址：
 
 - KrakenD API: http://localhost:8080/api/allfabs
